@@ -48,7 +48,7 @@ For API support, please contact the development team.
       'support@smartqueue.com',
     )
     .setLicense('MIT', 'https://opensource.org/licenses/MIT')
-    .addServer('http://localhost:9090', 'Local Development')
+    .addServer('http://localhost:45721', 'Local Development')
     .addServer('https://api.smartqueue.com', 'Production')
     .addBearerAuth(
       {
@@ -101,7 +101,7 @@ For API support, please contact the development team.
 
   // Enable CORS
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: process.env.CORS_ORIGIN || 'http://localhost:8545',
     credentials: true,
   });
 

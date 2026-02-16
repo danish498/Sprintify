@@ -22,7 +22,7 @@ datasource db {
 
 
 model User {
-  id                String    @id @db.Uuid
+  id                BigInt   @id @default(autoincrement())
   email             String    @unique
   username          String    @unique
   firstName         String?
@@ -33,6 +33,20 @@ model User {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   lastLoginAt       DateTime?
+
+
+    // Relations
+  ownedWorkspaces    Workspace[]
+  workspaceMemberships WorkspaceMember[]
+  projectMemberships ProjectMember[]
+  assignedTasks      Task[]            @relation("TaskAssignee")
+  reportedTasks      Task[]            @relation("TaskReporter")
+  taskAssignees      TaskAssignee[]
+  comments           Comment[]
+  attachments        Attachment[]
+  activityLogs       ActivityLog[]
+  timeEntries        TimeEntry[]
+  notifications      Notification[]
   
 
   @@index([email])
@@ -47,6 +61,402 @@ model Role {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
+
   @@map("roles")
+}
+
+
+
+
+
+
+
+
+// Workspaces (Top-level organization)
+model Workspace {
+  id          BigInt   @id @default(autoincrement())
+  name        String   @db.VarChar(255)
+  slug        String   @unique @db.VarChar(100)
+  description String?  @db.Text
+  ownerId     BigInt   @map("owner_id")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  // Relations
+  owner        User              @relation(fields: [ownerId], references: [id])
+  members      WorkspaceMember[]
+  projects     Project[]
+  priorities   Priority[]
+  labels       Label[]
+  activityLogs ActivityLog[]
+
+  @@map("workspaces")
+}
+
+// Workspace Members
+model WorkspaceMember {
+  id          BigInt   @id @default(autoincrement())
+  workspaceId BigInt   @map("workspace_id")
+  userId      BigInt   @map("user_id")
+  role        String   @default("member") @db.VarChar(50)
+  joinedAt    DateTime @default(now()) @map("joined_at") @db.Timestamp(6)
+
+  // Relations
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@map("workspace_members")
+}
+
+// Projects (Within workspaces)
+model Project {
+  id          BigInt   @id @default(autoincrement())
+  workspaceId BigInt   @map("workspace_id")
+  name        String   @db.VarChar(255)
+  key         String   @db.VarChar(10)
+  description String?  @db.Text
+  color       String?  @db.VarChar(7)
+  icon        String?  @db.VarChar(50)
+  isArchived  Boolean  @default(false) @map("is_archived")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  // Relations
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members        ProjectMember[]
+  boards         Board[]
+  statuses       Status[]
+  tasks          Task[]
+  activityLogs   ActivityLog[]
+  sprints        Sprint[]
+  customFields   CustomField[]
+
+  @@unique([workspaceId, key])
+  @@map("projects")
+}
+
+// Project Members
+model ProjectMember {
+  id        BigInt @id @default(autoincrement())
+  projectId BigInt @map("project_id")
+  userId    BigInt @map("user_id")
+  role      String @default("member") @db.VarChar(50)
+
+  // Relations
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+// Boards/Lists (Trello-style or Kanban view)
+model Board {
+  id        BigInt   @id @default(autoincrement())
+  projectId BigInt   @map("project_id")
+  name      String   @db.VarChar(255)
+  position  Int
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+
+  @@map("boards")
+}
+
+// Task Status (Workflow states)
+model Status {
+  id        BigInt   @id @default(autoincrement())
+  projectId BigInt   @map("project_id")
+  name      String   @db.VarChar(100)
+  color     String?  @db.VarChar(7)
+  position  Int
+  isDefault Boolean  @default(false) @map("is_default")
+  category  String   @default("todo") @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+
+  @@map("statuses")
+}
+
+// Priority Levels
+model Priority {
+  id          BigInt @id @default(autoincrement())
+  workspaceId BigInt @map("workspace_id")
+  name        String @db.VarChar(50)
+  level       Int
+  color       String? @db.VarChar(7)
+  icon        String? @db.VarChar(50)
+
+  // Relations
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+
+  @@map("priorities")
+}
+
+// Tasks/Issues (Main work items)
+model Task {
+  id             BigInt    @id @default(autoincrement())
+  projectId      BigInt    @map("project_id")
+  boardId        BigInt?   @map("board_id")
+  parentTaskId   BigInt?   @map("parent_task_id")
+  taskNumber     Int       @map("task_number")
+  title          String    @db.VarChar(500)
+  description    String?   @db.Text
+  statusId       BigInt?   @map("status_id")
+  priorityId     BigInt?   @map("priority_id")
+  assigneeId     BigInt?   @map("assignee_id")
+  reporterId     BigInt?   @map("reporter_id")
+  taskType       String    @default("task") @map("task_type") @db.VarChar(50)
+  storyPoints    Int?      @map("story_points")
+  estimatedHours Decimal?  @map("estimated_hours") @db.Decimal(10, 2)
+  actualHours    Decimal?  @map("actual_hours") @db.Decimal(10, 2)
+  dueDate        DateTime? @map("due_date") @db.Timestamp(6)
+  startDate      DateTime? @map("start_date") @db.Timestamp(6)
+  position       Decimal?  @db.Decimal(10, 5)
+  isArchived     Boolean   @default(false) @map("is_archived")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  completedAt    DateTime? @map("completed_at") @db.Timestamp(6)
+
+  // Relations
+  project       Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  board         Board?            @relation(fields: [boardId], references: [id], onDelete: SetNull)
+  parentTask    Task?             @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  subtasks      Task[]            @relation("TaskSubtasks")
+  status        Status?           @relation(fields: [statusId], references: [id])
+  priority      Priority?         @relation(fields: [priorityId], references: [id])
+  assignee      User?             @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  reporter      User?             @relation("TaskReporter", fields: [reporterId], references: [id])
+  taskAssignees TaskAssignee[]
+  taskLabels    TaskLabel[]
+  comments      Comment[]
+  attachments   Attachment[]
+  activityLogs  ActivityLog[]
+  sprintTasks   SprintTask[]
+  timeEntries   TimeEntry[]
+  notifications Notification[]
+  customFields  TaskCustomField[]
+
+  @@unique([projectId, taskNumber])
+  @@index([projectId])
+  @@index([statusId])
+  @@index([assigneeId])
+  @@index([boardId])
+  @@map("tasks")
+}
+
+// Task Assignees (Multiple assignees support)
+model TaskAssignee {
+  id         BigInt   @id @default(autoincrement())
+  taskId     BigInt   @map("task_id")
+  userId     BigInt   @map("user_id")
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamp(6)
+
+  // Relations
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@map("task_assignees")
+}
+
+// Labels/Tags
+model Label {
+  id          BigInt   @id @default(autoincrement())
+  workspaceId BigInt   @map("workspace_id")
+  name        String   @db.VarChar(100)
+  color       String?  @db.VarChar(7)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  workspace  Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  taskLabels TaskLabel[]
+
+  @@unique([workspaceId, name])
+  @@map("labels")
+}
+
+// Task Labels
+model TaskLabel {
+  id      BigInt @id @default(autoincrement())
+  taskId  BigInt @map("task_id")
+  labelId BigInt @map("label_id")
+
+  // Relations
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  label Label @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, labelId])
+  @@map("task_labels")
+}
+
+// Comments
+model Comment {
+  id              BigInt    @id @default(autoincrement())
+  taskId          BigInt    @map("task_id")
+  userId          BigInt?   @map("user_id")
+  content         String    @db.Text
+  parentCommentId BigInt?   @map("parent_comment_id")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  isDeleted       Boolean   @default(false) @map("is_deleted")
+
+  // Relations
+  task          Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user          User?     @relation(fields: [userId], references: [id])
+  parentComment Comment?  @relation("CommentReplies", fields: [parentCommentId], references: [id], onDelete: Cascade)
+  replies       Comment[] @relation("CommentReplies")
+
+  @@index([taskId])
+  @@map("comments")
+}
+
+// Attachments
+model Attachment {
+  id         BigInt   @id @default(autoincrement())
+  taskId     BigInt   @map("task_id")
+  userId     BigInt?  @map("user_id")
+  fileName   String   @map("file_name") @db.VarChar(255)
+  fileUrl    String   @map("file_url") @db.Text
+  fileSize   BigInt?  @map("file_size")
+  mimeType   String?  @map("mime_type") @db.VarChar(100)
+  uploadedAt DateTime @default(now()) @map("uploaded_at") @db.Timestamp(6)
+
+  // Relations
+  task Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("attachments")
+}
+
+// Activity Log (Audit trail)
+model ActivityLog {
+  id          BigInt   @id @default(autoincrement())
+  workspaceId BigInt?  @map("workspace_id")
+  projectId   BigInt?  @map("project_id")
+  taskId      BigInt?  @map("task_id")
+  userId      BigInt?  @map("user_id")
+  action      String   @db.VarChar(100)
+  entityType  String?  @map("entity_type") @db.VarChar(50)
+  entityId    BigInt?  @map("entity_id")
+  oldValue    Json?    @map("old_value")
+  newValue    Json?    @map("new_value")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project?   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task      Task?      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User?      @relation(fields: [userId], references: [id])
+
+  @@index([taskId])
+  @@index([createdAt])
+  @@map("activity_log")
+}
+
+// Sprints (For Agile/Scrum)
+model Sprint {
+  id        BigInt    @id @default(autoincrement())
+  projectId BigInt    @map("project_id")
+  name      String    @db.VarChar(255)
+  goal      String?   @db.Text
+  startDate DateTime? @map("start_date") @db.Timestamp(6)
+  endDate   DateTime? @map("end_date") @db.Timestamp(6)
+  status    String    @default("planned") @db.VarChar(50)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sprintTasks SprintTask[]
+
+  @@map("sprints")
+}
+
+// Sprint Tasks
+model SprintTask {
+  id       BigInt @id @default(autoincrement())
+  sprintId BigInt @map("sprint_id")
+  taskId   BigInt @map("task_id")
+
+  // Relations
+  sprint Sprint @relation(fields: [sprintId], references: [id], onDelete: Cascade)
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([sprintId, taskId])
+  @@map("sprint_tasks")
+}
+
+// Time Tracking
+model TimeEntry {
+  id          BigInt   @id @default(autoincrement())
+  taskId      BigInt   @map("task_id")
+  userId      BigInt?  @map("user_id")
+  description String?  @db.Text
+  hours       Decimal  @db.Decimal(10, 2)
+  loggedDate  DateTime @map("logged_date") @db.Date
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  task Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("time_entries")
+}
+
+// Notifications
+model Notification {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  taskId    BigInt?  @map("task_id")
+  type      String   @db.VarChar(50)
+  message   String?  @db.Text
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// Custom Fields Definition
+model CustomField {
+  id           BigInt   @id @default(autoincrement())
+  projectId    BigInt   @map("project_id")
+  fieldName    String   @map("field_name") @db.VarChar(100)
+  fieldType    String   @map("field_type") @db.VarChar(50)
+  fieldOptions Json?    @map("field_options")
+  isRequired   Boolean  @default(false) @map("is_required")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskCustomFields TaskCustomField[]
+
+  @@map("custom_fields")
+}
+
+// Custom Field Values
+model TaskCustomField {
+  id            BigInt @id @default(autoincrement())
+  taskId        BigInt @map("task_id")
+  customFieldId BigInt @map("custom_field_id")
+  value         String? @db.Text
+
+  // Relations
+  task        Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  customField CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, customFieldId])
+  @@map("task_custom_fields")
 }
 

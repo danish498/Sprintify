@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+
 import {
   ApiTags,
   ApiOperation,
@@ -22,6 +23,7 @@ import {
   ExchangeCodeDto,
   TokenResponseDto,
   UserProfileDto,
+  SignUpDto,
 } from './dto';
 import { Public } from './decorators';
 import { CurrentUser } from './decorators';
@@ -46,6 +48,38 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   async login(@Body() loginDto: LoginDto): Promise<TokenResponseDto> {
     return this.authService.login(loginDto);
+  }
+
+  @Public()
+  @Post('signup')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Register a new user' })
+  @ApiBody({ type: SignUpDto })
+  @ApiResponse({
+    status: 201,
+    description: 'User registered successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'User registered successfully' },
+        user: {
+          type: 'object',
+          properties: {
+            email: { type: 'string', example: 'john.doe@example.com' },
+            username: { type: 'string', example: 'john.doe' },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid data or user already exists',
+  })
+  async signUp(
+    @Body() signUpDto: SignUpDto,
+  ): Promise<{ message: string; user: { email: string; username: string } }> {
+    return await this.authService.signUp(signUpDto);
   }
 
   @Public()

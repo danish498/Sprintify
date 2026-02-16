@@ -13,7 +13,7 @@ RUN npm install
 COPY . .
 
 # Expose port
-EXPOSE 3000
+EXPOSE 45721
 
 # Start in development mode
 CMD ["npm", "run", "start:dev"]

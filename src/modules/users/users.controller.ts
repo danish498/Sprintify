@@ -16,7 +16,7 @@ import {
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { Roles, Permissions, CurrentUser } from '../auth/decorators';
-import { Role, Permission } from '../auth/interfaces';
+import { Role, Permission, RolePermissions } from '../auth/interfaces';
 import type { AuthenticatedUser } from '../auth/interfaces';
 
 @ApiTags('Users')
@@ -40,12 +40,31 @@ export class UsersController {
   @ApiResponse({ status: 200, description: 'Current user details' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   getMe(@CurrentUser() user: AuthenticatedUser) {
+    const permissions = this.getUserPermissions(user.roles);
+
     return {
       id: user.id,
       username: user.username,
       email: user.email,
       roles: user.roles,
+      permissions,
     };
+  }
+
+  /**
+   * Get permissions based on user roles
+   */
+  private getUserPermissions(userRoles: string[]): string[] {
+    const permissions: Set<Permission> = new Set();
+
+    userRoles.forEach((role) => {
+      const rolePermissions = RolePermissions[role as Role];
+      if (rolePermissions) {
+        rolePermissions.forEach((permission) => permissions.add(permission));
+      }
+    });
+
+    return Array.from(permissions);
   }
 
   @Get(':id')

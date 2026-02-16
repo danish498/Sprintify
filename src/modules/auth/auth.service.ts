@@ -7,14 +7,20 @@ import {
   ExchangeCodeDto,
   TokenResponseDto,
   UserProfileDto,
+  SignUpDto,
 } from './dto';
-import { AuthenticatedUser } from './interfaces';
+import {
+  AuthenticatedUser,
+  Role,
+  Permission,
+  RolePermissions,
+} from './interfaces';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
-  constructor(private readonly keycloakService: KeycloakService) {}
+  constructor(private readonly keycloakService: KeycloakService) { }
 
   /**
    * Login with username and password
@@ -28,6 +34,31 @@ export class AuthService {
     );
 
     return this.mapTokenResponse(tokens);
+  }
+
+  /**
+   * Sign up a new user
+   */
+  async signUp(
+    signUpDto: SignUpDto,
+  ): Promise<{ message: string; user: { email: string; username: string } }> {
+    this.logger.log(`Sign up attempt for user: ${signUpDto.username}`);
+
+    await this.keycloakService.registerUser({
+      email: signUpDto.email,
+      username: signUpDto.username,
+      password: signUpDto.password,
+      firstName: signUpDto.firstName,
+      lastName: signUpDto.lastName,
+    });
+
+    return {
+      message: 'User registered successfully',
+      user: {
+        email: signUpDto.email,
+        username: signUpDto.username,
+      },
+    };
   }
 
   /**
@@ -76,6 +107,8 @@ export class AuthService {
    * Get current user profile
    */
   getProfile(user: AuthenticatedUser): UserProfileDto {
+    const permissions = this.getUserPermissions(user.roles);
+
     return {
       id: user.id,
       email: user.email,
@@ -85,7 +118,24 @@ export class AuthService {
       fullName: user.fullName,
       emailVerified: user.emailVerified,
       roles: user.roles,
+      permissions,
     };
+  }
+
+  /**
+   * Get permissions based on user roles
+   */
+  private getUserPermissions(userRoles: string[]): string[] {
+    const permissions: Set<Permission> = new Set();
+
+    userRoles.forEach((role) => {
+      const rolePermissions = RolePermissions[role as Role];
+      if (rolePermissions) {
+        rolePermissions.forEach((permission) => permissions.add(permission));
+      }
+    });
+
+    return Array.from(permissions);
   }
 
   /**
@@ -103,6 +153,7 @@ export class AuthService {
       fullName: userInfo.name,
       emailVerified: userInfo.email_verified,
       roles: [],
+      permissions: [],
     };
   }
 

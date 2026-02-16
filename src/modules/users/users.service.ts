@@ -9,33 +9,61 @@ import { PrismaService } from 'src/prisma.service';
 
 @Injectable()
 export class UsersService {
-  // Mock users data - replace with actual database implementation
-  private users = [
-    { id: '1', username: 'admin', email: 'admin@example.com', role: 'admin' },
-    {
-      id: '2',
-      username: 'manager',
-      email: 'manager@example.com',
-      role: 'manager',
-    },
-    { id: '3', username: 'user', email: 'user@example.com', role: 'user' },
-  ];
-
   constructor(
     private readonly keycloakService: KeycloakService,
     private prisma: PrismaService,
   ) {}
 
-  findAll() {
-    return { message: 'This action returns all users', data: this.users };
+  async findAll() {
+    try {
+      const users = await this.prisma.user.findMany({
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+        },
+      });
+      return { message: 'This action returns all users', data: users };
+    } catch (error) {
+      throw new BadRequestException(
+        `Failed to fetch users: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
   }
 
-  findOne(id: string) {
-    const user = this.users.find((u) => u.id === id);
-    if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found`);
+  async findOne(id: string) {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: BigInt(id) },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+      if (!user) {
+        throw new NotFoundException(`User with ID ${id} not found`);
+      }
+      return { message: 'User found', data: user };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new BadRequestException(
+        `Failed to fetch user: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
-    return { message: 'User found', data: user };
   }
 
   async create(createUserDto: CreateUserDto) {
@@ -53,12 +81,11 @@ export class UsersService {
       // Then create user in database using Prisma
       const newUser = await this.prisma.user.create({
         data: {
-          id: crypto.randomUUID(),
           username: createUserDto.username,
           email: createUserDto.email,
           firstName: createUserDto.firstName,
           lastName: createUserDto.lastName,
-          role: createUserDto.role || 'viewer',
+          role: createUserDto.role || 'VIEWER',
         },
       });
 
@@ -76,21 +103,50 @@ export class UsersService {
     }
   }
 
-  update(id: string, updateUserDto: Record<string, unknown>) {
-    const userIndex = this.users.findIndex((u) => u.id === id);
-    if (userIndex === -1) {
-      throw new NotFoundException(`User with ID ${id} not found`);
+  async update(id: string, updateUserDto: Record<string, unknown>) {
+    try {
+      const existingUser = await this.prisma.user.findUnique({
+        where: { id: BigInt(id) },
+      });
+      if (!existingUser) {
+        throw new NotFoundException(`User with ID ${id} not found`);
+      }
+
+      const updatedUser = await this.prisma.user.update({
+        where: { id: BigInt(id) },
+        data: updateUserDto,
+      });
+      return { message: 'User updated', data: updatedUser };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new BadRequestException(
+        `Failed to update user: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
-    this.users[userIndex] = { ...this.users[userIndex], ...updateUserDto };
-    return { message: 'User updated', data: this.users[userIndex] };
   }
 
-  remove(id: string) {
-    const userIndex = this.users.findIndex((u) => u.id === id);
-    if (userIndex === -1) {
-      throw new NotFoundException(`User with ID ${id} not found`);
+  async remove(id: string) {
+    try {
+      const existingUser = await this.prisma.user.findUnique({
+        where: { id: BigInt(id) },
+      });
+      if (!existingUser) {
+        throw new NotFoundException(`User with ID ${id} not found`);
+      }
+
+      const deletedUser = await this.prisma.user.delete({
+        where: { id: BigInt(id) },
+      });
+      return { message: 'User deleted', data: deletedUser };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new BadRequestException(
+        `Failed to delete user: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
-    const deletedUser = this.users.splice(userIndex, 1)[0];
-    return { message: 'User deleted', data: deletedUser };
   }
 }

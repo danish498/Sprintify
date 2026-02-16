@@ -193,4 +193,11 @@ export class UserProfileDto {
     type: [String],
   })
   roles: string[];
+
+  @ApiProperty({
+    description: 'User permissions derived from roles',
+    example: ['user:read', 'queue:read', 'queue:create'],
+    type: [String],
+  })
+  permissions: string[];
 }
