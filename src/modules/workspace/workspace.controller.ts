@@ -35,7 +35,7 @@ export class WorkspaceController {
   @Roles(Role.ADMIN)
   // @Permissions(Permission.USER_CREATE)
   create(@Body() createWorkspaceDto: CreateWorkspaceDto, @Req() req: any) {
-    const ownerId = req.user.id; 
+    const ownerId = req.user.id;
     return this.workspaceService.create(createWorkspaceDto, ownerId);
   }
 }

@@ -46,11 +46,11 @@ export class KeycloakService {
   constructor(private readonly configService: ConfigService) {
     this.authServerUrl =
       this.configService.get<string>('keycloak.authServerUrl') ||
-      'http://localhost:8080';
+      'http://localhost:8081';
     this.realm =
       this.configService.get<string>('keycloak.realm') || 'smart-queue';
     this.clientId =
-      this.configService.get<string>('keycloak.clientId') || 'smart-queue-api';
+      this.configService.get<string>('keycloak.clientId') || 'sprintify_api';
     this.clientSecret =
       this.configService.get<string>('keycloak.clientSecret') || '';
 
@@ -68,6 +68,28 @@ export class KeycloakService {
    */
   getTokenEndpoint(): string {
     return `${this.authServerUrl}/realms/${this.realm}/protocol/openid-connect/token`;
+  }
+
+  private async getUserByUsername(username: string): Promise<any> {
+    const adminToken = await this.getAdminToken();
+
+    const response = await fetch(
+      `${this.authServerUrl}/admin/realms/${this.realm}/users?username=${username}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const users = await response.json();
+
+    return users.length > 0 ? users[0] : null;
   }
 
   /**
@@ -130,6 +152,7 @@ export class KeycloakService {
    * Login with username and password (Resource Owner Password Grant)
    * Note: This should only be used for trusted applications
    */
+
   async login(
     username: string,
     password: string,
@@ -151,9 +174,29 @@ export class KeycloakService {
       });
 
       if (!response.ok) {
-        const error = await response.text();
-        this.logger.error('Login failed', error);
-        throw new UnauthorizedException('Invalid credentials');
+        const errorBody = await response.json();
+
+        this.logger.error('Login failed', errorBody);
+
+        // 🔥 Handle invalid_grant properly
+        if (errorBody.error === 'invalid_grant') {
+          // Check if user exists + email verified
+          const user = await this.getUserByUsername(username);
+
+          if (user) {
+            if (!user.emailVerified) {
+              throw new UnauthorizedException(
+                'Email not verified. Please verify your email.',
+              );
+            }
+
+            throw new UnauthorizedException('Invalid password');
+          }
+
+          throw new UnauthorizedException('User does not exist');
+        }
+
+        throw new UnauthorizedException('Login failed');
       }
 
       return (await response.json()) as KeycloakTokenResponse;
@@ -161,6 +204,7 @@ export class KeycloakService {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
+
       this.logger.error('Login error', error);
       throw new InternalServerErrorException('Authentication service error');
     }
@@ -396,7 +440,7 @@ export class KeycloakService {
     firstName?: string;
     lastName?: string;
     roles?: string[];
-  }): Promise<void> {
+  }): Promise<string> {
     try {
       // Get admin access token
       const adminToken = await this.getAdminToken();
@@ -448,17 +492,24 @@ export class KeycloakService {
         throw new BadRequestException('Failed to register user');
       }
 
+      const locationHeader = response.headers.get('location');
+      const userId = locationHeader?.split('/').pop();
+
+      if (!userId) {
+        throw new InternalServerErrorException('Failed to get created user ID');
+      }
+
       // If roles are provided, assign them to the user
       if (signUpData.roles && signUpData.roles.length > 0) {
-        const locationHeader = response.headers.get('location');
-        const userId = locationHeader?.split('/').pop();
-
-        if (userId) {
-          await this.assignRolesToUser(userId, signUpData.roles, adminToken);
-        }
+        await this.assignRolesToUser(userId, signUpData.roles, adminToken);
       }
+
+      return userId;
     } catch (error) {
-      if (error instanceof BadRequestException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof InternalServerErrorException
+      ) {
         throw error;
       }
       this.logger.error('User registration error', error);
@@ -564,6 +615,39 @@ export class KeycloakService {
     } catch (error) {
       this.logger.error('Get admin token error', error);
       throw new InternalServerErrorException('Failed to get admin token');
+    }
+  }
+  /**
+   * Send verification email to a user
+   */
+  async sendVerificationEmail(userId: string): Promise<void> {
+    try {
+      const adminToken = await this.getAdminToken();
+
+      const response = await fetch(
+        `${this.authServerUrl}/admin/realms/${this.realm}/users/${userId}/send-verify-email`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${adminToken}`,
+          },
+        },
+      );
+
+      if (!response.ok) {
+        const error = await response.text();
+        this.logger.error('Failed to send verification email', error);
+        throw new InternalServerErrorException(
+          'Failed to send verification email',
+        );
+      }
+
+      this.logger.log(`Verification email sent to user ${userId}`);
+    } catch (error) {
+      this.logger.error('Send verification email error', error);
+      throw new InternalServerErrorException(
+        'Failed to send verification email',
+      );
     }
   }
 }

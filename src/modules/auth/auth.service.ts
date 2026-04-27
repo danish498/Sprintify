@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  InternalServerErrorException,
+} from '@nestjs/common';
+import { PrismaService } from '../../prisma.service';
 import { KeycloakService } from './keycloak.service';
 import {
   LoginDto,
@@ -20,7 +25,10 @@ import {
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
-  constructor(private readonly keycloakService: KeycloakService) { }
+  constructor(
+    private readonly keycloakService: KeycloakService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   /**
    * Login with username and password
@@ -33,6 +41,8 @@ export class AuthService {
       loginDto.password,
     );
 
+    this.logger.log(`Tokens: ${JSON.stringify(tokens)}`);
+
     return this.mapTokenResponse(tokens);
   }
 
@@ -44,7 +54,7 @@ export class AuthService {
   ): Promise<{ message: string; user: { email: string; username: string } }> {
     this.logger.log(`Sign up attempt for user: ${signUpDto.username}`);
 
-    await this.keycloakService.registerUser({
+    const userId = await this.keycloakService.registerUser({
       email: signUpDto.email,
       username: signUpDto.username,
       password: signUpDto.password,
@@ -52,8 +62,38 @@ export class AuthService {
       lastName: signUpDto.lastName,
     });
 
+    await this.keycloakService.sendVerificationEmail(userId);
+
+    // Create user in local database
+    try {
+      const response = await this.prisma.user.create({
+        data: {
+          id: userId, // Use Keycloak ID as local ID
+          email: signUpDto.email,
+          username: signUpDto.username,
+          firstName: signUpDto.firstName,
+          lastName: signUpDto.lastName,
+          keycloakId: userId,
+          role: 'VIEWER', // Default role
+        },
+      });
+
+      this.logger.log(`User created in database: ${JSON.stringify(response)}`);
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to create user in database: ${errorMessage}`);
+
+      // Throw error so the user knows registration failed in the local DB
+      // Note: In production, you might want to rollback the Keycloak user creation here
+      throw new InternalServerErrorException(
+        `User created in Keycloak but failed to sync with local database: ${errorMessage}`,
+      );
+    }
+
     return {
-      message: 'User registered successfully',
+      message:
+        'User registered successfully, Please verify your email and then login.',
       user: {
         email: signUpDto.email,
         username: signUpDto.username,

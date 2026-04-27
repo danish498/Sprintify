@@ -25,7 +25,7 @@ export class WorkspaceService {
     }
   }
 
-  async create(workspaceDto: CreateWorkspaceDto, ownerId: number) {
+  async create(workspaceDto: CreateWorkspaceDto, ownerId: string) {
     try {
       const newWorkspace = await this.prisma.workspace.create({
         data: {

@@ -1,3 +1,5 @@
+//eslint-disable @typescript-eslint/no-explicit-any */
+
 import {
   Injectable,
   NotFoundException,
@@ -39,7 +41,7 @@ export class UsersService {
   async findOne(id: string) {
     try {
       const user = await this.prisma.user.findUnique({
-        where: { id: BigInt(id) },
+        where: { id },
         select: {
           id: true,
           username: true,
@@ -69,7 +71,7 @@ export class UsersService {
   async create(createUserDto: CreateUserDto) {
     try {
       // First, create user in Keycloak
-      await this.keycloakService.registerUser({
+      const userId = await this.keycloakService.registerUser({
         email: createUserDto.email,
         username: createUserDto.username,
         password: createUserDto.password,
@@ -78,13 +80,17 @@ export class UsersService {
         roles: createUserDto.role ? [createUserDto.role] : undefined,
       });
 
+      await this.keycloakService.sendVerificationEmail(userId);
+
       // Then create user in database using Prisma
       const newUser = await this.prisma.user.create({
         data: {
+          id: userId, // Use Keycloak ID as local ID
           username: createUserDto.username,
           email: createUserDto.email,
           firstName: createUserDto.firstName,
           lastName: createUserDto.lastName,
+          keycloakId: userId,
           role: createUserDto.role || 'VIEWER',
         },
       });
@@ -106,14 +112,14 @@ export class UsersService {
   async update(id: string, updateUserDto: Record<string, unknown>) {
     try {
       const existingUser = await this.prisma.user.findUnique({
-        where: { id: BigInt(id) },
+        where: { id },
       });
       if (!existingUser) {
         throw new NotFoundException(`User with ID ${id} not found`);
       }
 
       const updatedUser = await this.prisma.user.update({
-        where: { id: BigInt(id) },
+        where: { id },
         data: updateUserDto,
       });
       return { message: 'User updated', data: updatedUser };
@@ -130,14 +136,14 @@ export class UsersService {
   async remove(id: string) {
     try {
       const existingUser = await this.prisma.user.findUnique({
-        where: { id: BigInt(id) },
+        where: { id },
       });
       if (!existingUser) {
         throw new NotFoundException(`User with ID ${id} not found`);
       }
 
       const deletedUser = await this.prisma.user.delete({
-        where: { id: BigInt(id) },
+        where: { id },
       });
       return { message: 'User deleted', data: deletedUser };
     } catch (error) {

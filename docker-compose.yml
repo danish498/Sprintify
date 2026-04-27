@@ -32,7 +32,7 @@ services:
     volumes:
       - .:/usr/src/app
       - /usr/src/app/node_modules
-    command: npm run start:dev
+    command: sh -c "npx prisma generate && npm run start:dev"
 
   postgres:
     image: postgres:15-alpine
@@ -42,7 +42,7 @@ services:
       - POSTGRES_PASSWORD=${DATABASE_PASSWORD:-postgres}
       - POSTGRES_DB=${DATABASE_NAME:-smart_queue}
     ports:
-      - '5432:5432'
+      - '5434:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -88,6 +88,8 @@ services:
       - KC_HOSTNAME_STRICT_HTTPS=false
       - KC_HTTP_ENABLED=true
       - KC_PROXY=edge
+      - KC_HOSTNAME=localhost
+      - KC_HOSTNAME_PORT=8081
     command: start-dev
     ports:
       - '8081:8080'
