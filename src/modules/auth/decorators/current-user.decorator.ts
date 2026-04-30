@@ -21,6 +21,8 @@ import { AuthenticatedUser } from '../interfaces';
  */
 export const CurrentUser = createParamDecorator(
   (data: keyof AuthenticatedUser | undefined, ctx: ExecutionContext) => {
+    console.log('data', JSON.stringify(data));
+
     const request = ctx.switchToHttp().getRequest<Request>();
     const user = request.user as AuthenticatedUser | undefined;
 

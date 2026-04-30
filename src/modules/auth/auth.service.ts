@@ -102,6 +102,17 @@ export class AuthService {
   }
 
   /**
+   * Get Google Login URL
+   */
+  getGoogleLoginUrl(redirectUri: string): { url: string } {
+    const url = this.keycloakService.getIdentityProviderAuthorizationUrl(
+      redirectUri,
+      'google',
+    );
+    return { url };
+  }
+
+  /**
    * Exchange authorization code for tokens
    */
   async exchangeCode(
@@ -113,6 +124,44 @@ export class AuthService {
       exchangeCodeDto.code,
       exchangeCodeDto.redirectUri,
     );
+
+    // Sync user from Keycloak if they don't exist in local DB
+    // This handles users who sign up via Google / Identity Providers
+    try {
+      const userInfo = await this.keycloakService.getUserInfo(
+        tokens.access_token,
+      );
+
+      const existingUser = await this.prisma.user.findUnique({
+        where: { id: userInfo.sub },
+      });
+
+      if (!existingUser) {
+        this.logger.log(
+          `User ${userInfo.sub} not found in local database, syncing from Keycloak...`,
+        );
+        await this.prisma.user.create({
+          data: {
+            id: userInfo.sub,
+            keycloakId: userInfo.sub,
+            email: userInfo.email,
+            username:
+              userInfo.preferred_username || userInfo.email.split('@')[0],
+            firstName: userInfo.given_name || '',
+            lastName: userInfo.family_name || '',
+            role: 'VIEWER', // Default role
+          },
+        });
+        this.logger.log(
+          `Successfully synced user ${userInfo.sub} to local database.`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        'Failed to sync user from Keycloak after code exchange',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
 
     return this.mapTokenResponse(tokens);
   }

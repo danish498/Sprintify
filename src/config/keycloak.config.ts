@@ -2,6 +2,7 @@ import { registerAs } from '@nestjs/config';
 
 export interface KeycloakConfig {
   authServerUrl: string;
+  internalAuthServerUrl: string;
   realm: string;
   clientId: string;
   clientSecret: string;
@@ -14,7 +15,11 @@ export default registerAs(
   'keycloak',
   (): KeycloakConfig => ({
     authServerUrl:
-      process.env.KEYCLOAK_AUTH_SERVER_URL || 'http://localhost:8080',
+      process.env.KEYCLOAK_AUTH_SERVER_URL || 'http://localhost:8081',
+    internalAuthServerUrl:
+      process.env.KEYCLOAK_INTERNAL_URL ||
+      process.env.KEYCLOAK_AUTH_SERVER_URL ||
+      'http://localhost:8081',
     realm: process.env.KEYCLOAK_REALM || 'smart-queue',
     clientId: process.env.KEYCLOAK_CLIENT_ID || 'smart-queue-api',
     clientSecret: process.env.KEYCLOAK_CLIENT_SECRET || '',

@@ -34,11 +34,22 @@ interface KeycloakUserInfo {
   email: string;
 }
 
+interface KeycloakUser {
+  id: string;
+  username: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  enabled: boolean;
+  emailVerified: boolean;
+}
+
 @Injectable()
 export class KeycloakService {
   private readonly logger = new Logger(KeycloakService.name);
   private jwksClient: JwksClient;
   private readonly authServerUrl: string;
+  private readonly internalAuthServerUrl: string;
   private readonly realm: string;
   private readonly clientId: string;
   private readonly clientSecret: string;
@@ -47,6 +58,9 @@ export class KeycloakService {
     this.authServerUrl =
       this.configService.get<string>('keycloak.authServerUrl') ||
       'http://localhost:8081';
+    this.internalAuthServerUrl =
+      this.configService.get<string>('keycloak.internalAuthServerUrl') ||
+      this.authServerUrl;
     this.realm =
       this.configService.get<string>('keycloak.realm') || 'smart-queue';
     this.clientId =
@@ -55,7 +69,7 @@ export class KeycloakService {
       this.configService.get<string>('keycloak.clientSecret') || '';
 
     this.jwksClient = new JwksClient({
-      jwksUri: `${this.authServerUrl}/realms/${this.realm}/protocol/openid-connect/certs`,
+      jwksUri: `${this.internalAuthServerUrl}/realms/${this.realm}/protocol/openid-connect/certs`,
       cache: true,
       cacheMaxAge: 86400000, // 24 hours
       rateLimit: true,
@@ -67,14 +81,16 @@ export class KeycloakService {
    * Get the Keycloak token endpoint URL
    */
   getTokenEndpoint(): string {
-    return `${this.authServerUrl}/realms/${this.realm}/protocol/openid-connect/token`;
+    return `${this.internalAuthServerUrl}/realms/${this.realm}/protocol/openid-connect/token`;
   }
 
-  private async getUserByUsername(username: string): Promise<any> {
+  private async getUserByUsername(
+    username: string,
+  ): Promise<KeycloakUser | null> {
     const adminToken = await this.getAdminToken();
 
     const response = await fetch(
-      `${this.authServerUrl}/admin/realms/${this.realm}/users?username=${username}`,
+      `${this.internalAuthServerUrl}/admin/realms/${this.realm}/users?username=${username}`,
       {
         method: 'GET',
         headers: {
@@ -87,7 +103,7 @@ export class KeycloakService {
       return null;
     }
 
-    const users = await response.json();
+    const users = (await response.json()) as KeycloakUser[];
 
     return users.length > 0 ? users[0] : null;
   }
@@ -96,14 +112,14 @@ export class KeycloakService {
    * Get the Keycloak userinfo endpoint URL
    */
   getUserInfoEndpoint(): string {
-    return `${this.authServerUrl}/realms/${this.realm}/protocol/openid-connect/userinfo`;
+    return `${this.internalAuthServerUrl}/realms/${this.realm}/protocol/openid-connect/userinfo`;
   }
 
   /**
    * Get the Keycloak logout endpoint URL
    */
   getLogoutEndpoint(): string {
-    return `${this.authServerUrl}/realms/${this.realm}/protocol/openid-connect/logout`;
+    return `${this.internalAuthServerUrl}/realms/${this.realm}/protocol/openid-connect/logout`;
   }
 
   /**
@@ -111,6 +127,30 @@ export class KeycloakService {
    */
   getAuthorizationEndpoint(): string {
     return `${this.authServerUrl}/realms/${this.realm}/protocol/openid-connect/auth`;
+  }
+
+  /***
+   *  get authorization url with idp hint
+   */
+  getProviderAuthorizationEndpoint(): string {
+    return `${this.authServerUrl}/realms/${this.realm}/protocol/openid-connect/auth`;
+  }
+
+  /**
+   * Get the Keycloak authorization URL for a specific Identity Provider
+   */
+  getIdentityProviderAuthorizationUrl(
+    redirectUri: string,
+    idpHint: string,
+  ): string {
+    const url = new URL(this.getProviderAuthorizationEndpoint());
+    url.searchParams.append('client_id', this.clientId);
+    url.searchParams.append('redirect_uri', redirectUri);
+    url.searchParams.append('response_type', 'code');
+    url.searchParams.append('scope', 'openid profile email');
+    url.searchParams.append('kc_idp_hint', idpHint);
+
+    return url.toString();
   }
 
   /**
@@ -174,7 +214,7 @@ export class KeycloakService {
       });
 
       if (!response.ok) {
-        const errorBody = await response.json();
+        const errorBody = (await response.json()) as { error: string };
 
         this.logger.error('Login failed', errorBody);
 
@@ -309,8 +349,13 @@ export class KeycloakService {
 
     try {
       if (publicKey) {
+        // Ensure the public key is in PEM format
+        const formattedKey = publicKey.includes('-----BEGIN')
+          ? publicKey
+          : `-----BEGIN PUBLIC KEY-----\n${publicKey}\n-----END PUBLIC KEY-----`;
+
         // Use static public key if provided
-        return jwt.verify(token, publicKey, {
+        return jwt.verify(token, formattedKey, {
           algorithms: ['RS256'],
         }) as KeycloakTokenPayload;
       }
@@ -380,7 +425,7 @@ export class KeycloakService {
   ): Promise<{ active: boolean; [key: string]: unknown }> {
     try {
       const response = await fetch(
-        `${this.authServerUrl}/realms/${this.realm}/protocol/openid-connect/token/introspect`,
+        `${this.internalAuthServerUrl}/realms/${this.realm}/protocol/openid-connect/token/introspect`,
         {
           method: 'POST',
           headers: {
@@ -414,7 +459,7 @@ export class KeycloakService {
   async getOpenIdConfiguration(): Promise<Record<string, unknown>> {
     try {
       const response = await fetch(
-        `${this.authServerUrl}/realms/${this.realm}/.well-known/openid-configuration`,
+        `${this.internalAuthServerUrl}/realms/${this.realm}/.well-known/openid-configuration`,
       );
 
       if (!response.ok) {
@@ -448,7 +493,7 @@ export class KeycloakService {
       this.logger.debug('signUpData', signUpData);
 
       const response = await fetch(
-        `${this.authServerUrl}/admin/realms/${this.realm}/users`,
+        `${this.internalAuthServerUrl}/admin/realms/${this.realm}/users`,
         {
           method: 'POST',
           headers: {
@@ -528,7 +573,7 @@ export class KeycloakService {
     try {
       // Get available realm roles
       const rolesResponse = await fetch(
-        `${this.authServerUrl}/admin/realms/${this.realm}/roles`,
+        `${this.internalAuthServerUrl}/admin/realms/${this.realm}/roles`,
         {
           method: 'GET',
           headers: {
@@ -560,7 +605,7 @@ export class KeycloakService {
 
       // Assign roles to user
       const assignResponse = await fetch(
-        `${this.authServerUrl}/admin/realms/${this.realm}/users/${userId}/role-mappings/realm`,
+        `${this.internalAuthServerUrl}/admin/realms/${this.realm}/users/${userId}/role-mappings/realm`,
         {
           method: 'POST',
           headers: {
@@ -625,7 +670,7 @@ export class KeycloakService {
       const adminToken = await this.getAdminToken();
 
       const response = await fetch(
-        `${this.authServerUrl}/admin/realms/${this.realm}/users/${userId}/send-verify-email`,
+        `${this.internalAuthServerUrl}/admin/realms/${this.realm}/users/${userId}/send-verify-email`,
         {
           method: 'PUT',
           headers: {

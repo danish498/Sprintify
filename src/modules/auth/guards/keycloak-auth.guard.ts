@@ -83,8 +83,13 @@ export class KeycloakAuthGuard implements CanActivate {
     const publicKey = this.configService.get<string>('keycloak.publicKey');
 
     if (publicKey) {
+      // Ensure the public key is in PEM format
+      const formattedKey = publicKey.includes('-----BEGIN')
+        ? publicKey
+        : `-----BEGIN PUBLIC KEY-----\n${publicKey}\n-----END PUBLIC KEY-----`;
+
       // Use static public key if provided
-      return jwt.verify(token, publicKey, {
+      return jwt.verify(token, formattedKey, {
         algorithms: ['RS256'],
       }) as KeycloakTokenPayload;
     }
@@ -117,6 +122,8 @@ export class KeycloakAuthGuard implements CanActivate {
 
     // Combine realm and client roles
     const allRoles = [...new Set([...realmRoles, ...clientRoles])];
+
+    this.logger.log('allRoles', JSON.stringify(allRoles));
 
     // Map to our Role enum where possible
     const mappedRoles = allRoles.filter((role) =>

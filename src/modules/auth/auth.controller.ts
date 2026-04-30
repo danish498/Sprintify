@@ -6,6 +6,8 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Query,
+  BadRequestException,
 } from '@nestjs/common';
 
 import {
@@ -14,6 +16,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import {
@@ -140,6 +143,33 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   getProfile(@CurrentUser() user: AuthenticatedUser): UserProfileDto {
     return this.authService.getProfile(user);
+  }
+
+  @Public()
+  @Get('google/login-url')
+  @ApiOperation({ summary: 'Get Google login URL' })
+  @ApiQuery({
+    name: 'redirectUri',
+    required: true,
+    description: 'The redirect URI after successful login',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'URL to redirect the user to for Google login',
+    schema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string' },
+      },
+    },
+  })
+  getGoogleLoginUrl(@Query('redirectUri') redirectUri: string): {
+    url: string;
+  } {
+    if (!redirectUri) {
+      throw new BadRequestException('redirectUri is required');
+    }
+    return this.authService.getGoogleLoginUrl(redirectUri);
   }
 
   @Public()
